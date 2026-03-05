@@ -80,6 +80,7 @@ export async function runAgent(
   sessionId: string | undefined,
   onTyping: () => void,
   onProgress?: (event: AgentProgressEvent) => void,
+  model?: string,
 ): Promise<AgentResult> {
   // Read secrets from .env without polluting process.env.
   // CLAUDE_CODE_OAUTH_TOKEN is optional — the subprocess finds auth via ~/.claude/
@@ -87,6 +88,8 @@ export async function runAgent(
   const secrets = readEnvFile(['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY']);
 
   const sdkEnv: Record<string, string | undefined> = { ...process.env };
+  // Prevent "cannot launch inside another Claude Code session" when started from Claude Code
+  delete sdkEnv.CLAUDECODE;
   if (secrets.CLAUDE_CODE_OAUTH_TOKEN) {
     sdkEnv.CLAUDE_CODE_OAUTH_TOKEN = secrets.CLAUDE_CODE_OAUTH_TOKEN;
   }
@@ -127,6 +130,9 @@ export async function runAgent(
         // Skip all permission prompts — this is a trusted personal bot on your own machine
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
+
+        // Model override — defaults to account default (Opus) when undefined
+        ...(model ? { model } : {}),
 
         // Pass secrets to the subprocess without polluting our own process.env
         env: sdkEnv,

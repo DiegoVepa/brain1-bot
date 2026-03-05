@@ -39,7 +39,8 @@ async function runDueTasks(): Promise<void> {
       await sender(`Scheduled task running: "${task.prompt.slice(0, 80)}${task.prompt.length > 80 ? '...' : ''}"`);
 
       // Run as a fresh agent call (no session — scheduled tasks are autonomous)
-      const result = await runAgent(task.prompt, undefined, () => {});
+      // Use task-specific model if set (e.g. Haiku for briefings), otherwise default (Opus)
+      const result = await runAgent(task.prompt, undefined, () => {}, undefined, task.model ?? undefined);
       const text = result.text?.trim() || 'Task completed with no output.';
 
       await sender(formatForTelegram(text));

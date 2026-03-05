@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
 
-import { DASHBOARD_PORT, DASHBOARD_TOKEN, WHATSAPP_ENABLED, SLACK_USER_TOKEN, CONTEXT_LIMIT } from './config.js';
+import { DASHBOARD_PORT, DASHBOARD_TOKEN, CONTEXT_LIMIT } from './config.js';
 import {
   getAllScheduledTasks,
   getDashboardMemoryStats,
@@ -95,8 +95,8 @@ export function startDashboard(): void {
       turns,
       compactions,
       sessionAge,
-      waConnected: WHATSAPP_ENABLED,
-      slackConnected: !!SLACK_USER_TOKEN,
+      waConnected: false,
+      slackConnected: false,
     });
   });
 

@@ -8,6 +8,7 @@ import { initDatabase } from './db.js';
 import { logger } from './logger.js';
 import { cleanupOldUploads } from './media.js';
 import { runDecaySweep } from './memory.js';
+import { startBrainSync } from './brain-sync.js';
 import { initScheduler } from './scheduler.js';
 
 const PID_FILE = path.join(STORE_DIR, 'claudeclaw.pid');
@@ -18,7 +19,7 @@ function showBanner(): void {
     const banner = fs.readFileSync(bannerPath, 'utf-8');
     console.log('\n' + banner);
   } catch {
-    console.log('\n  ClaudeClaw\n');
+    console.log('\n  Brain 1 Bot\n');
   }
 }
 
@@ -65,7 +66,9 @@ async function main(): Promise<void> {
   const bot = createBot();
 
   if (ALLOWED_CHAT_ID) {
-    initScheduler((text) => bot.api.sendMessage(ALLOWED_CHAT_ID, text, { parse_mode: 'HTML' }).then(() => {}));
+    const send = (text: string) => bot.api.sendMessage(ALLOWED_CHAT_ID, text, { parse_mode: 'HTML' }).then(() => {});
+    initScheduler(send);
+    startBrainSync(send);
   }
 
   const shutdown = async () => {
@@ -77,12 +80,12 @@ async function main(): Promise<void> {
   process.on('SIGINT', () => void shutdown());
   process.on('SIGTERM', () => void shutdown());
 
-  logger.info('Starting ClaudeClaw...');
+  logger.info('Starting Brain 1 Bot...');
 
   await bot.start({
     onStart: (botInfo) => {
-      logger.info({ username: botInfo.username }, 'ClaudeClaw is running');
-      console.log(`\n  ClaudeClaw online: @${botInfo.username}`);
+      logger.info({ username: botInfo.username }, 'Brain 1 Bot is running');
+      console.log(`\n  Brain 1 Bot online: @${botInfo.username}`);
       console.log(`  Send /chatid to get your chat ID for ALLOWED_CHAT_ID\n`);
     },
   });

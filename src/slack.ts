@@ -1,6 +1,6 @@
 import { WebClient } from '@slack/web-api';
 
-import { SLACK_USER_TOKEN } from './config.js';
+const SLACK_USER_TOKEN = ''; // Slack integration disabled
 import { saveSlackMessage } from './db.js';
 import { logger } from './logger.js';
 

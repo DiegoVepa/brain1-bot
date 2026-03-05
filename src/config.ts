@@ -9,12 +9,12 @@ const envConfig = readEnvFile([
   'GROQ_API_KEY',
   'ELEVENLABS_API_KEY',
   'ELEVENLABS_VOICE_ID',
-  'WHATSAPP_ENABLED',
-  'SLACK_USER_TOKEN',
   'CONTEXT_LIMIT',
   'DASHBOARD_PORT',
   'DASHBOARD_TOKEN',
   'DASHBOARD_URL',
+  'BRAIN1_ROOT',
+  'BRAIN_SHARED_ROOT',
 ]);
 
 export const TELEGRAM_BOT_TOKEN =
@@ -23,12 +23,6 @@ export const TELEGRAM_BOT_TOKEN =
 // Only respond to this Telegram chat ID. Set this after getting your ID via /chatid.
 export const ALLOWED_CHAT_ID =
   process.env.ALLOWED_CHAT_ID || envConfig.ALLOWED_CHAT_ID || '';
-
-export const WHATSAPP_ENABLED =
-  (process.env.WHATSAPP_ENABLED || envConfig.WHATSAPP_ENABLED || '').toLowerCase() === 'true';
-
-export const SLACK_USER_TOKEN =
-  process.env.SLACK_USER_TOKEN || envConfig.SLACK_USER_TOKEN || '';
 
 // Voice — read via readEnvFile, not process.env
 export const GROQ_API_KEY = envConfig.GROQ_API_KEY ?? '';
@@ -67,3 +61,11 @@ export const DASHBOARD_TOKEN =
   process.env.DASHBOARD_TOKEN || envConfig.DASHBOARD_TOKEN || '';
 export const DASHBOARD_URL =
   process.env.DASHBOARD_URL || envConfig.DASHBOARD_URL || '';
+
+// Brain 1 memory/governance repo
+export const BRAIN1_ROOT =
+  process.env.BRAIN1_ROOT || envConfig.BRAIN1_ROOT || '/Users/diegovences/brain-1';
+
+// Brain shared collaboration repo
+export const BRAIN_SHARED_ROOT =
+  process.env.BRAIN_SHARED_ROOT || envConfig.BRAIN_SHARED_ROOT || '/Users/diegovences/brain-shared';

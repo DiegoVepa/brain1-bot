@@ -148,6 +148,13 @@ function runMigrations(database: Database.Database): void {
   if (!hasContextTokens) {
     database.exec(`ALTER TABLE token_usage ADD COLUMN context_tokens INTEGER NOT NULL DEFAULT 0`);
   }
+
+  // Add model column to scheduled_tasks (allows per-task model selection, e.g. Haiku for briefings)
+  const taskCols = database.prepare(`PRAGMA table_info(scheduled_tasks)`).all() as Array<{ name: string }>;
+  const hasModel = taskCols.some((c) => c.name === 'model');
+  if (!hasModel) {
+    database.exec(`ALTER TABLE scheduled_tasks ADD COLUMN model TEXT`);
+  }
 }
 
 /** @internal - for tests only. Creates a fresh in-memory database. */
@@ -262,6 +269,7 @@ export interface ScheduledTask {
   last_result: string | null;
   status: 'active' | 'paused';
   created_at: number;
+  model: string | null;
 }
 
 export function createScheduledTask(
@@ -269,12 +277,13 @@ export function createScheduledTask(
   prompt: string,
   schedule: string,
   nextRun: number,
+  model?: string,
 ): void {
   const now = Math.floor(Date.now() / 1000);
   db.prepare(
-    `INSERT INTO scheduled_tasks (id, prompt, schedule, next_run, status, created_at)
-     VALUES (?, ?, ?, ?, 'active', ?)`,
-  ).run(id, prompt, schedule, nextRun, now);
+    `INSERT INTO scheduled_tasks (id, prompt, schedule, next_run, status, created_at, model)
+     VALUES (?, ?, ?, ?, 'active', ?, ?)`,
+  ).run(id, prompt, schedule, nextRun, now, model ?? null);
 }
 
 export function getDueTasks(): ScheduledTask[] {

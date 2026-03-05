@@ -40,10 +40,12 @@ switch (command) {
   case 'create': {
     const prompt = rest[0];
     const cron = rest[1];
+    const model = rest[2] || undefined; // optional: e.g. "claude-haiku-4-5-20251001"
 
     if (!prompt || !cron) {
-      console.error('Usage: schedule-cli create "prompt" "cron expression"');
+      console.error('Usage: schedule-cli create "prompt" "cron expression" [model]');
       console.error('Example: schedule-cli create "Summarise AI news" "0 9 * * 1"');
+      console.error('Example: schedule-cli create "Morning briefing" "30 5 * * *" claude-haiku-4-5-20251001');
       process.exit(1);
     }
 
@@ -57,11 +59,12 @@ switch (command) {
     }
 
     const id = randomBytes(4).toString('hex');
-    createScheduledTask(id, prompt, cron, nextRun);
+    createScheduledTask(id, prompt, cron, nextRun, model);
 
     console.log(`Task created: ${id}`);
     console.log(`Prompt:       ${prompt}`);
     console.log(`Schedule:     ${cron}`);
+    console.log(`Model:        ${model ?? '(default)'}`);
     console.log(`Next run:     ${formatDate(nextRun)}`);
     break;
   }
@@ -78,6 +81,7 @@ switch (command) {
       console.log(`${t.id}${status}`);
       console.log(`  Prompt:   ${t.prompt}`);
       console.log(`  Schedule: ${t.schedule}`);
+      console.log(`  Model:    ${t.model ?? '(default)'}`);
       console.log(`  Next run: ${formatDate(t.next_run)}`);
       console.log(`  Last run: ${formatDate(t.last_run)}`);
       console.log();
