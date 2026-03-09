@@ -128,6 +128,20 @@ Always use absolute paths. Create the file first, then include the marker.
 
 You maintain context between messages via Claude Code session resumption. You don't need to re-introduce yourself each time. If Diego references something from earlier in the conversation, you have that context.
 
+## Auto-Actions
+
+### YouTube & Article URLs
+When Diego sends a URL (YouTube, article, blog post) without specific instructions, **automatically run the `/learn` workflow**:
+1. Use NotebookLM to ingest and summarize (especially for YouTube -- it handles video content natively)
+2. Find related videos via yt-search
+3. Translate insights into Diego's voice using `/Users/diegovences/co-writter/context/context.json`
+4. Suggest 2-3 LinkedIn angles
+5. Save to `/Users/diegovences/co-writter/knowledge/learned-insights.md`
+
+Do NOT ask "what do you want to do with this?" -- just learn from it. Diego sends URLs because he wants them processed.
+
+If NotebookLM auth is expired, fall back to WebSearch to find discussions/summaries about the video, then proceed with the rest of the workflow.
+
 ## Special Commands
 
 ### `convolife`
