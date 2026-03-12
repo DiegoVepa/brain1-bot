@@ -33,13 +33,14 @@ async function runDueTasks(): Promise<void> {
   logger.info({ count: tasks.length }, 'Running due scheduled tasks');
 
   for (const task of tasks) {
-    logger.info({ taskId: task.id, prompt: task.prompt.slice(0, 60) }, 'Firing task');
+    const label = task.name ?? task.id;
+    logger.info({ taskId: task.id, label }, 'Firing task');
 
     try {
-      await sender(`Scheduled task running: "${task.prompt.slice(0, 80)}${task.prompt.length > 80 ? '...' : ''}"`);
+      await sender(`Running scheduled task: <b>${label}</b>`);
 
       // Run as a fresh agent call (no session — scheduled tasks are autonomous)
-      // Use task-specific model if set (e.g. Haiku for briefings), otherwise default (Opus)
+      // Use task-specific model if set (e.g. Sonnet for content ideas), otherwise default (Opus)
       const result = await runAgent(task.prompt, undefined, () => {}, undefined, task.model ?? undefined);
       const text = result.text?.trim() || 'Task completed with no output.';
 
@@ -50,9 +51,19 @@ async function runDueTasks(): Promise<void> {
 
       logger.info({ taskId: task.id, nextRun }, 'Task complete, next run scheduled');
     } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
       logger.error({ err, taskId: task.id }, 'Scheduled task failed');
+
+      // Always advance to next window — don't retry this window
+      const nextRun = computeNextRun(task.schedule);
+      updateTaskAfterRun(task.id, nextRun, `FAILED: ${errMsg.slice(0, 200)}`);
+
       try {
-        await sender(`Task failed: "${task.prompt.slice(0, 60)}..." — check logs.`);
+        const nextDate = new Date(nextRun * 1000).toLocaleString('en-US', {
+          month: 'short', day: 'numeric',
+          hour: 'numeric', minute: '2-digit', hour12: true,
+        });
+        await sender(`Task failed: <b>${label}</b>. Next run: ${nextDate}`);
       } catch {
         // ignore send failure
       }

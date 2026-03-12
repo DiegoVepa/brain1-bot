@@ -38,13 +38,24 @@ function formatDate(unix: number | null): string {
 
 switch (command) {
   case 'create': {
-    const prompt = rest[0];
-    const cron = rest[1];
-    const model = rest[2] || undefined; // optional: e.g. "claude-haiku-4-5-20251001"
+    // Parse --name flag from rest args
+    let name: string | undefined;
+    const filteredRest: string[] = [];
+    for (let i = 0; i < rest.length; i++) {
+      if (rest[i] === '--name' && i + 1 < rest.length) {
+        name = rest[++i];
+      } else {
+        filteredRest.push(rest[i]);
+      }
+    }
+
+    const prompt = filteredRest[0];
+    const cron = filteredRest[1];
+    const model = filteredRest[2] || undefined;
 
     if (!prompt || !cron) {
-      console.error('Usage: schedule-cli create "prompt" "cron expression" [model]');
-      console.error('Example: schedule-cli create "Summarise AI news" "0 9 * * 1"');
+      console.error('Usage: schedule-cli create "prompt" "cron expression" [model] [--name "Label"]');
+      console.error('Example: schedule-cli create "Summarise AI news" "0 9 * * 1" --name "Weekly AI Digest"');
       console.error('Example: schedule-cli create "Morning briefing" "30 5 * * *" claude-haiku-4-5-20251001');
       process.exit(1);
     }
@@ -59,10 +70,11 @@ switch (command) {
     }
 
     const id = randomBytes(4).toString('hex');
-    createScheduledTask(id, prompt, cron, nextRun, model);
+    createScheduledTask(id, prompt, cron, nextRun, model, name);
 
     console.log(`Task created: ${id}`);
-    console.log(`Prompt:       ${prompt}`);
+    if (name) console.log(`Name:         ${name}`);
+    console.log(`Prompt:       ${prompt.slice(0, 80)}${prompt.length > 80 ? '...' : ''}`);
     console.log(`Schedule:     ${cron}`);
     console.log(`Model:        ${model ?? '(default)'}`);
     console.log(`Next run:     ${formatDate(nextRun)}`);
@@ -79,7 +91,8 @@ switch (command) {
     for (const t of tasks) {
       const status = t.status === 'paused' ? ' [PAUSED]' : '';
       console.log(`${t.id}${status}`);
-      console.log(`  Prompt:   ${t.prompt}`);
+      if (t.name) console.log(`  Name:     ${t.name}`);
+      console.log(`  Prompt:   ${t.prompt.slice(0, 60)}${t.prompt.length > 60 ? '...' : ''}`);
       console.log(`  Schedule: ${t.schedule}`);
       console.log(`  Model:    ${t.model ?? '(default)'}`);
       console.log(`  Next run: ${formatDate(t.next_run)}`);

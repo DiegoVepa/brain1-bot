@@ -155,6 +155,12 @@ function runMigrations(database: Database.Database): void {
   if (!hasModel) {
     database.exec(`ALTER TABLE scheduled_tasks ADD COLUMN model TEXT`);
   }
+
+  // Add name column to scheduled_tasks (human-friendly label for notifications)
+  const hasName = taskCols.some((c) => c.name === 'name');
+  if (!hasName) {
+    database.exec(`ALTER TABLE scheduled_tasks ADD COLUMN name TEXT`);
+  }
 }
 
 /** @internal - for tests only. Creates a fresh in-memory database. */
@@ -270,6 +276,7 @@ export interface ScheduledTask {
   status: 'active' | 'paused';
   created_at: number;
   model: string | null;
+  name: string | null;
 }
 
 export function createScheduledTask(
@@ -278,12 +285,13 @@ export function createScheduledTask(
   schedule: string,
   nextRun: number,
   model?: string,
+  name?: string,
 ): void {
   const now = Math.floor(Date.now() / 1000);
   db.prepare(
-    `INSERT INTO scheduled_tasks (id, prompt, schedule, next_run, status, created_at, model)
-     VALUES (?, ?, ?, ?, 'active', ?, ?)`,
-  ).run(id, prompt, schedule, nextRun, now, model ?? null);
+    `INSERT INTO scheduled_tasks (id, prompt, schedule, next_run, status, created_at, model, name)
+     VALUES (?, ?, ?, ?, 'active', ?, ?, ?)`,
+  ).run(id, prompt, schedule, nextRun, now, model ?? null, name ?? null);
 }
 
 export function getDueTasks(): ScheduledTask[] {
