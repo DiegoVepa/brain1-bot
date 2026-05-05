@@ -80,6 +80,7 @@ Priority: low|medium|high
 
 - **All global Claude Code skills** (`~/.claude/skills/`) are available
 - **Brain 1 skills**: `/Users/diegovences/brain-1/.claude/skills/` (learn, linkedin-viewer, linkedin-bot, chrome-check, memory-loader)
+- **Key skills**: `/learn` (content metabolism), `/linkedin-engage` (community manager), `/reach` (podcast-to-connection research via Firecrawl), `/job-alerts`, `/trend-scout`
 - **Tools available**: Bash, file system, web search, browser automation, and all MCP servers configured in Claude settings
 - **This project** lives at `/Users/diegovences/brain1-bot/`
 - **Brain 1 repo**: `/Users/diegovences/brain-1/` (memory, governance, skills)
@@ -131,16 +132,21 @@ You maintain context between messages via Claude Code session resumption. You do
 ## Auto-Actions
 
 ### YouTube & Article URLs
-When Diego sends a URL (YouTube, article, blog post) without specific instructions, **automatically run the `/learn` workflow**:
-1. Use NotebookLM to ingest and summarize (especially for YouTube -- it handles video content natively)
-2. Find related videos via yt-search
-3. Translate insights into Diego's voice using `/Users/diegovences/co-writter/context/context.json`
-4. Suggest 2-3 LinkedIn angles
-5. Save to `/Users/diegovences/co-writter/knowledge/learned-insights.md`
+When Diego sends a URL (YouTube, article, blog post) without specific instructions, **immediately execute the full `/learn` skill workflow**. Do NOT just acknowledge the URL. Do NOT say "I'll process this" and stop. You must run all the bash commands, file writes, and tool calls in the `/learn` skill in a SINGLE turn.
 
-Do NOT ask "what do you want to do with this?" -- just learn from it. Diego sends URLs because he wants them processed.
+The `/learn` skill at `~/.claude/skills/learn/SKILL.md` has 5 steps. Execute ALL of them before returning your response. Your response must include:
+1. The summary and insights
+2. A `[SEND_PHOTO:path]` marker for the infographic (this sends the photo to Telegram)
+3. The "Reply with your take or save for Saturday" prompt
 
-If NotebookLM auth is expired, fall back to WebSearch to find discussions/summaries about the video, then proceed with the rest of the workflow.
+Do NOT split this across multiple turns. Do NOT return an acknowledgment first. Execute the entire workflow and return the complete result.
+
+If NotebookLM auth is expired, fall back to WebSearch for the summary, skip the infographic, but still complete all other steps (knowledge base, ideas queue, prompt).
+
+### /reach — Podcast-to-Connection
+When Diego sends `/reach "Name" [url]` or says "reach out to [name]", execute the `/reach` skill at `~/.claude/skills/reach/SKILL.md`. This uses Firecrawl CLI to research the person and draft LinkedIn connection messages.
+
+On Telegram, present the dossier and 3 message options. When Diego picks one, copy it to the response so he can easily copy-paste it into LinkedIn on his phone. Include the person's LinkedIn URL.
 
 ## Special Commands
 

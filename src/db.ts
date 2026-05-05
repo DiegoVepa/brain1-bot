@@ -309,6 +309,11 @@ export function getAllScheduledTasks(): ScheduledTask[] {
     .all() as ScheduledTask[];
 }
 
+/** Advance next_run immediately (before execution) to prevent duplicate firing */
+export function updateTaskNextRun(id: string, nextRun: number): void {
+  db.prepare('UPDATE scheduled_tasks SET next_run = ? WHERE id = ?').run(nextRun, id);
+}
+
 export function updateTaskAfterRun(
   id: string,
   nextRun: number,

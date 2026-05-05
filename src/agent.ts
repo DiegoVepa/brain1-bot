@@ -85,7 +85,7 @@ export async function runAgent(
   // Read secrets from .env without polluting process.env.
   // CLAUDE_CODE_OAUTH_TOKEN is optional — the subprocess finds auth via ~/.claude/
   // automatically. Only needed if you want to override which account is used.
-  const secrets = readEnvFile(['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY']);
+  const secrets = readEnvFile(['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY', 'AUTH_TOKEN', 'CT0']);
 
   const sdkEnv: Record<string, string | undefined> = { ...process.env };
   // Prevent "cannot launch inside another Claude Code session" when started from Claude Code
@@ -95,6 +95,13 @@ export async function runAgent(
   }
   if (secrets.ANTHROPIC_API_KEY) {
     sdkEnv.ANTHROPIC_API_KEY = secrets.ANTHROPIC_API_KEY;
+  }
+  // Bird CLI tokens for Trend Scout X/Twitter scanning
+  if (secrets.AUTH_TOKEN) {
+    sdkEnv.AUTH_TOKEN = secrets.AUTH_TOKEN;
+  }
+  if (secrets.CT0) {
+    sdkEnv.CT0 = secrets.CT0;
   }
 
   let newSessionId: string | undefined;

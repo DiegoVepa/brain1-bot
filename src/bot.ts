@@ -18,6 +18,11 @@ import { clearSession, getRecentConversation, getRecentMemories, getSession, set
 import { logger } from './logger.js';
 import { downloadMedia, buildPhotoMessage, buildDocumentMessage, buildVideoMessage } from './media.js';
 import { buildMemoryContext, saveConversationTurn } from './memory.js';
+import { parseLinkedInApproval } from './linkedin-approve.js';
+import { parseJobApproval, getSheetLink } from './job-approve.js';
+import { parsePendingQueue, buildOpportunityCard, buildWarmingCard, buildBatchSummary } from './linkedin-buttons.js';
+import { handleLinkedInCallback, batchStates, type BatchState } from './linkedin-callback.js';
+import { expireOnNewScan } from './linkedin-batch-ttl.js';
 
 // ── Context window tracking ──────────────────────────────────────────
 // Uses input_tokens from the last API call (= actual context window size:
@@ -280,20 +285,13 @@ async function handleMessage(ctx: Context, message: string, forceVoiceReply = fa
   );
 
   try {
-    // Progress callback: surface sub-agent lifecycle events to Telegram
-    const onProgress = (event: AgentProgressEvent) => {
-      if (event.type === 'task_started') {
-        void ctx.reply(`🔄 ${event.description}`).catch(() => {});
-      } else if (event.type === 'task_completed') {
-        void ctx.reply(`✓ ${event.description}`).catch(() => {});
-      }
-    };
-
+    // No progress callbacks — sub-agent status messages cluttered Telegram.
+    // Diego only wants the final result, not internal progress updates.
     const result = await runAgent(
       fullMessage,
       sessionId,
       () => void sendTyping(ctx.api, chatId),
-      onProgress,
+      undefined,
     );
 
     clearInterval(typingInterval);
@@ -308,10 +306,85 @@ async function handleMessage(ctx: Context, message: string, forceVoiceReply = fa
     // Extract file markers before any formatting
     const { text: responseText, files: fileMarkers } = extractFileMarkers(rawResponse);
 
+    // Detect LinkedIn batch marker and send rich cards with buttons
+    if (rawResponse.includes('[LINKEDIN_BATCH_READY]')) {
+      const sent = await sendLinkedInBatch(ctx);
+      if (sent) {
+        logger.info('LinkedIn batch sent via inline buttons');
+      }
+    }
+
     // Save conversation turn to memory (including full log).
     // Skip logging for synthetic messages like /respin to avoid self-referential growth.
     if (!skipLog) {
       saveConversationTurn(chatIdStr, message, rawResponse, result.newSessionId ?? sessionId);
+    }
+
+    // Deterministic delivery for YouTube URLs: read the ideas queue (source of truth),
+    // find the newest entry, send its infographic + angles + "save for Saturday" prompt.
+    // This runs from bot code, not the agent, because the agent never formats output correctly.
+    const isYouTubeUrl = /youtube\.com|youtu\.be/i.test(message);
+    if (isYouTubeUrl) {
+      const queuePath = '/Users/diegovences/co-writter/drafts/ideas-queue.md';
+      try {
+        const queueContent = fs.readFileSync(queuePath, 'utf-8');
+        // Split on entry headers: "## [captured]" or "## [drafted]" etc.
+        const entries = queueContent.split(/^## \[/m).filter(e => e.trim());
+        if (entries.length > 0) {
+          const lastEntry = entries[entries.length - 1];
+
+          // Extract fields from the last queue entry
+          const titleMatch = lastEntry.match(/^(?:captured|drafted)\]\s*[\d-]+\s*--\s*(.+)/);
+          const title = titleMatch?.[1]?.trim() || 'New idea';
+
+          const infraMatch = lastEntry.match(/\*\*Infographic:\*\*\s*(.+)/);
+          const infographicPath = infraMatch?.[1]?.trim();
+
+          const angleMatches = [...lastEntry.matchAll(/^\d+\.\s*"(.+?)"/gm)];
+          const angles = angleMatches.map(m => m[1]);
+
+          const pendingCount = (queueContent.match(/## \[captured\]/g) || []).length;
+
+          // Send infographic photo to Telegram
+          if (infographicPath && infographicPath !== 'none' && fs.existsSync(infographicPath)) {
+            const photoInput = new InputFile(infographicPath);
+            await ctx.replyWithPhoto(photoInput, { caption: `Visual summary: ${title}` });
+            logger.info({ infographicPath, title }, 'Sent infographic from queue');
+
+            // Upload to Google Drive (2Brain/Paco/Paco-Output)
+            // gws requires --upload path to be within cwd, so we cd to the file's directory
+            try {
+              const driveFolder = '1ZFi5EeJKCIrTDgWtdxtYEXkziSBOigat'; // 2Brain/Paco/Content Infographics
+              const fileName = path.basename(infographicPath);
+              const fileDir = path.dirname(infographicPath);
+              const { execSync } = await import('child_process');
+              execSync(
+                `gws drive files create --json '{"name":"${fileName}","parents":["${driveFolder}"]}' --upload "${fileName}" --upload-content-type image/png --format json`,
+                { timeout: 30000, cwd: fileDir },
+              );
+              logger.info({ fileName }, 'Uploaded infographic to Google Drive');
+            } catch (driveErr) {
+              logger.error({ err: driveErr }, 'Drive upload failed (non-blocking)');
+            }
+          } else if (infographicPath === 'none' || !infographicPath) {
+            logger.info('No infographic generated for this entry');
+          }
+
+          // Send formatted prompt (deterministic, not from agent)
+          if (angles.length > 0) {
+            const anglesText = angles.map((a, i) => `${i + 1}. ${a}`).join('\n');
+            await ctx.reply(
+              `<b>Idea captured.</b> ${angles.length} LinkedIn angle${angles.length !== 1 ? 's' : ''} ready.\n\n` +
+              `${anglesText}\n\n` +
+              `Reply with your take to draft a post now, or say "save for Saturday."\n\n` +
+              `You have ${pendingCount} idea${pendingCount !== 1 ? 's' : ''} waiting for Saturday review.`,
+              { parse_mode: 'HTML' },
+            );
+          }
+        }
+      } catch (queueErr) {
+        logger.error({ err: queueErr }, 'Queue-based delivery failed');
+      }
     }
 
     // Send any attached files first
@@ -395,6 +468,63 @@ async function handleMessage(ctx: Context, message: string, forceVoiceReply = fa
       await ctx.reply('Something went wrong. Check the logs and try again.');
     }
   }
+}
+
+/**
+ * Send a LinkedIn batch as individual Telegram messages with inline keyboards.
+ * Called when agent response includes [LINKEDIN_BATCH_READY] marker.
+ */
+async function sendLinkedInBatch(ctx: Context): Promise<boolean> {
+  const batch = parsePendingQueue();
+  if (!batch || (batch.opportunities.length === 0 && batch.warmingSignals.length === 0)) {
+    return false;
+  }
+
+  const chatId = ctx.chat!.id;
+
+  // Expire any previous pending batches
+  await expireOnNewScan(batchStates, ctx);
+
+  // Create new batch state
+  const state: BatchState = {
+    items: new Map(),
+    messageIds: new Map(),
+    chatId,
+    createdAt: Date.now(),
+    allDecided: false,
+  };
+
+  // Send warming signal cards (info only, no buttons)
+  for (const signal of batch.warmingSignals) {
+    const text = buildWarmingCard(signal);
+    await ctx.reply(text, { parse_mode: 'HTML' });
+  }
+
+  // Send opportunity cards with buttons
+  for (const opp of batch.opportunities) {
+    const { text, keyboard } = buildOpportunityCard(opp, batch.batchId);
+    const sent = await ctx.reply(text, {
+      parse_mode: 'HTML',
+      reply_markup: keyboard,
+    });
+    state.items.set(opp.index, 'pending');
+    state.messageIds.set(opp.index, sent.message_id);
+  }
+
+  // Send summary with approve all / skip all
+  if (batch.opportunities.length > 0) {
+    const { text, keyboard } = buildBatchSummary(batch.batchId, batch.opportunities.length);
+    const summaryMsg = await ctx.reply(text, {
+      parse_mode: 'HTML',
+      reply_markup: keyboard,
+    });
+    state.summaryMessageId = summaryMsg.message_id;
+  }
+
+  batchStates.set(batch.batchId, state);
+  logger.info({ batchId: batch.batchId, opportunities: batch.opportunities.length, warmingSignals: batch.warmingSignals.length }, 'Sent LinkedIn batch with buttons');
+
+  return true;
 }
 
 export function createBot(): Bot {
@@ -538,14 +668,69 @@ export function createBot(): Bot {
     await ctx.reply(`<a href="${url}">Open Dashboard</a>`, { parse_mode: 'HTML' });
   });
 
+  // /testbatch — send the current pending LinkedIn batch as interactive cards (for testing)
+  bot.command('testbatch', async (ctx) => {
+    if (!isAuthorised(ctx.chat!.id)) return;
+    const sent = await sendLinkedInBatch(ctx);
+    if (!sent) {
+      await ctx.reply('No pending LinkedIn batch found.');
+    }
+  });
+
+  // ── LinkedIn inline keyboard callbacks ──────────────────────────────
+  bot.on('callback_query:data', async (ctx) => {
+    if (!isAuthorised(ctx.callbackQuery.from.id)) return;
+    const data = ctx.callbackQuery.data;
+
+    if (data.startsWith('li:')) {
+      const result = await handleLinkedInCallback(ctx);
+      if (result) {
+        // All items decided — execute the approved actions
+        await handleMessage(ctx, result.prompt);
+      }
+      return;
+    }
+
+    // Future: other callback handlers (job alerts, etc.)
+    await ctx.answerCallbackQuery();
+  });
+
   // Text messages — and any slash commands not owned by this bot (skills, e.g. /todo /gmail)
-  const OWN_COMMANDS = new Set(['/start', '/newchat', '/respin', '/voice', '/memory', '/forget', '/chatid', '/brain2', '/priorities', '/dashboard']);
+  const OWN_COMMANDS = new Set(['/start', '/newchat', '/respin', '/voice', '/memory', '/forget', '/chatid', '/brain2', '/priorities', '/dashboard', '/testbatch']);
   bot.on('message:text', async (ctx) => {
     const text = ctx.message.text;
 
     if (text.startsWith('/')) {
       const cmd = text.split(/[\s@]/)[0].toLowerCase();
       if (OWN_COMMANDS.has(cmd)) return; // already handled by bot.command() above
+    }
+
+    // Job approval handler — intercept "apply 1,3", "save 2", "skip all"
+    // Only triggers when a pending job batch exists in job-pending-queue.md
+    const jobApproval = parseJobApproval(text);
+    if (jobApproval) {
+      logger.info({ type: jobApproval.type, raw: jobApproval.raw }, 'Job approval detected');
+      if (jobApproval.type === 'skip') {
+        const sheetLink = getSheetLink();
+        await ctx.reply(`Job batch skipped. Next scan tomorrow at 8 AM.${sheetLink}`);
+        return;
+      }
+      await handleMessage(ctx, jobApproval.prompt);
+      return;
+    }
+
+    // LinkedIn approval handler — intercept "1,2,5", "all", "skip", "edit N: ..."
+    // Only triggers when a pending LinkedIn batch exists in pending-queue.md
+    const approval = parseLinkedInApproval(text);
+    if (approval) {
+      logger.info({ type: approval.type, raw: approval.raw }, 'LinkedIn approval detected');
+      if (approval.type === 'skip') {
+        await ctx.reply('Batch skipped. Next scan at scheduled time.');
+        return;
+      }
+      // Route to agent with the execution prompt (new session, no memory context)
+      await handleMessage(ctx, approval.prompt);
+      return;
     }
 
     await handleMessage(ctx, text);

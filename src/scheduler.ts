@@ -4,10 +4,11 @@ import { ALLOWED_CHAT_ID } from './config.js';
 import {
   getDueTasks,
   updateTaskAfterRun,
+  updateTaskNextRun,
 } from './db.js';
 import { logger } from './logger.js';
 import { runAgent } from './agent.js';
-import { formatForTelegram } from './bot.js';
+import { formatForTelegram, splitMessage } from './bot.js';
 
 type Sender = (text: string) => Promise<void>;
 
@@ -36,17 +37,25 @@ async function runDueTasks(): Promise<void> {
     const label = task.name ?? task.id;
     logger.info({ taskId: task.id, label }, 'Firing task');
 
-    try {
-      await sender(`Running scheduled task: <b>${label}</b>`);
+    // Advance next_run BEFORE execution to prevent duplicate firing.
+    // The agent can take minutes; without this, the 60s interval re-fires the same task.
+    const nextRun = computeNextRun(task.schedule);
+    updateTaskNextRun(task.id, nextRun);
 
+    try {
       // Run as a fresh agent call (no session — scheduled tasks are autonomous)
+      // No start notification — only send the final result to keep Telegram clean.
       // Use task-specific model if set (e.g. Sonnet for content ideas), otherwise default (Opus)
       const result = await runAgent(task.prompt, undefined, () => {}, undefined, task.model ?? undefined);
       const text = result.text?.trim() || 'Task completed with no output.';
 
-      await sender(formatForTelegram(text));
+      // Prepend task name as header so Diego knows which cron produced this
+      const header = `<b>${label}</b>\n\n`;
+      const formatted = header + formatForTelegram(text);
+      for (const chunk of splitMessage(formatted)) {
+        await sender(chunk);
+      }
 
-      const nextRun = computeNextRun(task.schedule);
       updateTaskAfterRun(task.id, nextRun, text);
 
       logger.info({ taskId: task.id, nextRun }, 'Task complete, next run scheduled');
@@ -54,8 +63,7 @@ async function runDueTasks(): Promise<void> {
       const errMsg = err instanceof Error ? err.message : String(err);
       logger.error({ err, taskId: task.id }, 'Scheduled task failed');
 
-      // Always advance to next window — don't retry this window
-      const nextRun = computeNextRun(task.schedule);
+      // next_run already advanced above; just record the failure
       updateTaskAfterRun(task.id, nextRun, `FAILED: ${errMsg.slice(0, 200)}`);
 
       try {
